@@ -1,0 +1,16 @@
+# Productivity-Friend — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Core AI / LLM ─────────────────────────────────────────────
+anthropic>=0.40.0          # Claude API client (claude-opus-4-6 support)
+
+# ── Microsoft Graph API Auth ──────────────────────────────────
+msal>=1.28.0               # Microsoft Authentication Library
+requests>=2.31.0           # HTTP client for Graph API calls
+
+# ── JSON Processing ───────────────────────────────────────────
+jsonschema>=4.22.0         # JSON schema validation
+deepdiff>=7.0.0            # JSON diff generation
+
+# ── Environment / Config ──────────────────────────────────────
+python-dotenv>=1.0.0       # Load .env files

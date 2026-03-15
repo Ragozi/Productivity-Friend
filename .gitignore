@@ -1,0 +1,50 @@
+# ── Secrets & Config ──────────────────────────────────────────
+.env
+*.env
+.env.*
+!.env.example
+
+# ── PII Mapping Files (NEVER commit — contains re-identifiable data) ──
+data/pii_maps/
+data/outputs/
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual Environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Temp files ────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak
