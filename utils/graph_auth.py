@@ -209,3 +209,10 @@ def graph_patch(path: str, body: dict) -> dict:
     resp = requests.patch(url, headers=get_headers(), json=body, timeout=30)
     resp.raise_for_status()
     return resp.json()
+
+
+def graph_delete(path: str) -> None:
+    """Perform a DELETE request against Microsoft Graph API."""
+    url = f"{GRAPH_BASE}{path}"
+    resp = requests.delete(url, headers=get_headers(), timeout=30)
+    resp.raise_for_status()

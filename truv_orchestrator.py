@@ -5,11 +5,22 @@ Productivity-Friend — Truv TAM Orchestrator
 A modular, multi-agent AI productivity tool for Technical Account Managers at Truv.com.
 
 Usage:
-    python truv_orchestrator.py --scan-inbox           # Fetch & prioritize emails
-    python truv_orchestrator.py --daily-brief          # Calendar analysis + to-do list
-    python truv_orchestrator.py --meeting-prep         # Prep briefs for upcoming meetings
-    python truv_orchestrator.py --process-json <file>  # Process a local Truv JSON file
-    python truv_orchestrator.py --full                 # Run all agents
+    python truv_orchestrator.py --scan-inbox              # Fetch & prioritize emails
+    python truv_orchestrator.py --scan-inbox --auto-clean # Also delete spam/phishing
+    python truv_orchestrator.py --scan-inbox --auto-draft # Also draft replies for HIGH emails
+    python truv_orchestrator.py --daily-brief             # Calendar analysis + to-do list
+    python truv_orchestrator.py --meeting-prep            # Prep briefs for upcoming meetings
+    python truv_orchestrator.py --process-json <file>     # Process a local Truv JSON file
+    python truv_orchestrator.py --full                    # Run all agents
+    python truv_orchestrator.py --ask "question"          # Smart routing
+
+JSON attachment pipeline (triggered automatically during --scan-inbox):
+  When an email with a .json attachment is found:
+  1. A folder is created in the project root named after the sender
+  2. The raw JSON is saved there
+  3. The JSON agent validates, fixes errors, and redacts PII
+  4. The fixed JSON is saved to the same folder
+  5. A draft reply email is prepared for the customer
 
 Security notes:
   - PII is NEVER sent to Claude. Anonymization runs locally before any LLM call.
@@ -22,6 +33,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -34,9 +46,9 @@ from anthropic import Anthropic
 # ---------------------------------------------------------------------------
 load_dotenv()
 
-from agents.email_agent   import run_email_agent
-from agents.calendar_agent import run_calendar_agent
-from agents.json_agent    import process_truv_json
+from agents.email_agent       import run_email_agent
+from agents.calendar_agent    import run_calendar_agent
+from agents.json_agent        import process_truv_json
 from agents.meeting_prep_agent import run_meeting_prep_agent
 
 # ---------------------------------------------------------------------------
@@ -50,6 +62,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("orchestrator")
 
+# Project root = directory containing this script
+PROJECT_ROOT = Path(__file__).parent
+
 
 # ---------------------------------------------------------------------------
 # Claude client
@@ -62,6 +77,28 @@ def get_claude_client() -> Anthropic:
         )
         sys.exit(1)
     return Anthropic(api_key=api_key)
+
+
+# ---------------------------------------------------------------------------
+# Sender folder helpers
+# ---------------------------------------------------------------------------
+def sender_to_folder_name(sender_email: str) -> str:
+    """Convert a sender email address to a safe directory name."""
+    # Use the local part (before @) as the folder name
+    name = sender_email.split("@")[0] if "@" in sender_email else sender_email
+    # Strip characters that are invalid in directory names
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(". ")
+    return name or "unknown_sender"
+
+
+def get_sender_folder(sender_email: str) -> Path:
+    """
+    Return (and create) a folder in the project root named after the sender.
+    e.g. sender john.doe@acme.com → <project_root>/john.doe/
+    """
+    folder = PROJECT_ROOT / sender_to_folder_name(sender_email)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
 
 
 # ---------------------------------------------------------------------------
@@ -84,14 +121,28 @@ def print_email_results(results: list[dict]) -> None:
         print("  No unread emails found.")
         return
 
-    high = [r for r in results if r["priority"] == "HIGH"]
-    med  = [r for r in results if r["priority"] == "MEDIUM"]
-    low  = [r for r in results if r["priority"] == "LOW"]
+    high     = [r for r in results if r["priority"] == "HIGH"]
+    med      = [r for r in results if r["priority"] == "MEDIUM"]
+    low      = [r for r in results if r["priority"] == "LOW"]
+    spam     = [r for r in results if r["priority"] == "SPAM"]
+    phishing = [r for r in results if r["priority"] == "PHISHING"]
+
+    total_cleaned = len([r for r in results if r.get("deleted")])
 
     print(f"  Scanned {len(results)} unread emails:")
-    print(f"    🔴 HIGH    : {len(high)}")
-    print(f"    🟡 MEDIUM  : {len(med)}")
-    print(f"    🟢 LOW     : {len(low)}")
+    print(f"    🔴 HIGH     : {len(high)}")
+    print(f"    🟡 MEDIUM   : {len(med)}")
+    print(f"    🟢 LOW      : {len(low)}")
+    if spam:
+        deleted_count = len([r for r in spam if r.get("deleted")])
+        print(f"    🗑  SPAM     : {len(spam)}"
+              + (f"  ({deleted_count} deleted)" if deleted_count else ""))
+    if phishing:
+        deleted_count = len([r for r in phishing if r.get("deleted")])
+        print(f"    ☠  PHISHING : {len(phishing)}"
+              + (f"  ({deleted_count} deleted)" if deleted_count else ""))
+    if total_cleaned:
+        print(f"\n  ✓ Auto-cleaned {total_cleaned} spam/phishing email(s).")
 
     if high:
         subsection("HIGH PRIORITY (action required)")
@@ -101,7 +152,7 @@ def print_email_results(results: list[dict]) -> None:
             print(f"         Why:  {r['reason']}")
             print(f"         Do:   {r['action']}")
             if r.get("has_json_attachment"):
-                print(f"         📎 JSON attachment detected: {r.get('json_attachment_filename')}")
+                print(f"         📎 JSON attachment: {r.get('json_attachment_filename')}")
             if r.get("draft_id"):
                 print(f"         ✉  Draft reply saved (ID: {r['draft_id']})")
             print()
@@ -116,6 +167,18 @@ def print_email_results(results: list[dict]) -> None:
         subsection("LOW PRIORITY")
         for r in low:
             print(f"    • {r['subject']}")
+
+    if phishing and not all(r.get("deleted") for r in phishing):
+        subsection("⚠  PHISHING (not deleted — run with --auto-clean to remove)")
+        for r in phishing:
+            if not r.get("deleted"):
+                print(f"    ☠  {r['subject']} — {r['from']}")
+
+    if spam and not all(r.get("deleted") for r in spam):
+        subsection("SPAM (not deleted — run with --auto-clean to remove)")
+        for r in spam:
+            if not r.get("deleted"):
+                print(f"    🗑  {r['subject']} — {r['from']}")
 
 
 def print_calendar_results(result: dict) -> None:
@@ -239,6 +302,26 @@ def print_json_results(result: dict) -> None:
             print(f"    {line}")
 
 
+def print_json_done_notification(result: dict, sender_folder: Path) -> None:
+    """Print a clear completion notification after JSON processing."""
+    width = 72
+    print(f"\n{'─' * width}")
+    print(f"  ✅  JSON PROCESSING COMPLETE")
+    print(f"{'─' * width}")
+    print(f"  Sender folder : {sender_folder}")
+    print(f"  Fixed file    : {result.get('output_path')}")
+    if result.get("was_fixed"):
+        err_count = len(result.get("validation_errors", []))
+        print(f"  Fixed errors  : {err_count} validation issue(s) resolved")
+    else:
+        print(f"  Status        : JSON was already valid — no changes needed")
+    pii = result.get("pii_summary", "")
+    if pii:
+        print(f"  PII redacted  : {pii.splitlines()[0]}")
+    print(f"  Draft reply   : ready (see report above)")
+    print(f"{'─' * width}\n")
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator routing — Claude classifies the overall task
 # ---------------------------------------------------------------------------
@@ -284,6 +367,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   python truv_orchestrator.py --scan-inbox
+  python truv_orchestrator.py --scan-inbox --auto-clean
+  python truv_orchestrator.py --scan-inbox --auto-draft
   python truv_orchestrator.py --daily-brief
   python truv_orchestrator.py --meeting-prep
   python truv_orchestrator.py --process-json customer_request.json --customer-email customer@example.com
@@ -300,6 +385,11 @@ def main() -> None:
         "--auto-draft",
         action="store_true",
         help="Automatically draft replies for HIGH priority emails (use with --scan-inbox)",
+    )
+    parser.add_argument(
+        "--auto-clean",
+        action="store_true",
+        help="Automatically delete SPAM and PHISHING emails (use with --scan-inbox)",
     )
     parser.add_argument(
         "--daily-brief",
@@ -357,7 +447,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version="Productivity-Friend v0.1.0",
+        version="Productivity-Friend v0.2.0",
     )
 
     args = parser.parse_args()
@@ -393,33 +483,54 @@ def main() -> None:
     if args.ask:
         routed = route_with_claude(client, args.ask)
         logger.info("Orchestrator routing decision: %s", routed)
-        run_email    = "email"    in routed
-        run_calendar = "calendar" in routed
+        run_email    = "email"        in routed
+        run_calendar = "calendar"     in routed
         run_meeting  = "meeting_prep" in routed
-        run_json     = "json" in routed
+        run_json     = "json"         in routed
 
     # ── Email Agent ──────────────────────────────────────────────────────────
     if run_email:
         try:
             email_results = run_email_agent(
-                client, top=args.top, auto_draft=args.auto_draft
+                client,
+                top=args.top,
+                auto_draft=args.auto_draft,
+                auto_clean=args.auto_clean,
             )
             print_email_results(email_results)
 
             # Hand off any JSON attachments to the JSON Agent
-            for r in email_results:
-                if r.get("has_json_attachment"):
-                    logger.info(
-                        "Found JSON attachment in email from %s — running JSON agent.",
-                        r["from"],
-                    )
-                    json_result = process_truv_json(
-                        client=client,
-                        raw_json=r["json_attachment_data"],
-                        filename=r.get("json_attachment_filename", "attachment.json"),
-                        customer_email=r["from"],
-                    )
-                    print_json_results(json_result)
+            json_emails = [r for r in email_results if r.get("has_json_attachment")]
+            for r in json_emails:
+                sender = r["from"]
+                filename = r.get("json_attachment_filename", "attachment.json")
+                raw_json = r["json_attachment_data"]
+
+                logger.info(
+                    "JSON attachment found in email from %s — starting JSON pipeline.", sender
+                )
+
+                # Create a folder named after the sender in the project root
+                sender_folder = get_sender_folder(sender)
+
+                # Save the raw attachment into the sender folder
+                raw_path = sender_folder / filename
+                raw_path.write_text(
+                    __import__("json").dumps(raw_json, indent=2), encoding="utf-8"
+                )
+                logger.info("Raw attachment saved to %s", raw_path)
+
+                # Run the full JSON processing pipeline, saving output to same folder
+                json_result = process_truv_json(
+                    client=client,
+                    raw_json=raw_json,
+                    filename=filename,
+                    customer_email=sender,
+                    output_dir=sender_folder,
+                )
+                print_json_results(json_result)
+                print_json_done_notification(json_result, sender_folder)
+
         except Exception as exc:
             logger.error("Email agent failed: %s", exc, exc_info=True)
 
@@ -455,14 +566,19 @@ def main() -> None:
             logger.error("Could not read JSON file: %s", exc)
             sys.exit(1)
 
+        # For local file processing, save output next to the input file
+        output_dir = json_path.parent
+
         try:
             json_result = process_truv_json(
                 client=client,
                 raw_json=raw_json,
                 filename=json_path.name,
                 customer_email=args.customer_email,
+                output_dir=output_dir,
             )
             print_json_results(json_result)
+            print_json_done_notification(json_result, output_dir)
         except Exception as exc:
             logger.error("JSON agent failed: %s", exc, exc_info=True)
 

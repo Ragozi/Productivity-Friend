@@ -28,8 +28,8 @@ from utils.truv_docs import get_endpoint_docs
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = Path("data/outputs")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_OUTPUT_DIR = Path("data/outputs")
+DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 JSON_FIX_SYSTEM_PROMPT = """You are a Truv API integration expert. Your job is to fix malformed
 JSON API request payloads so they conform to Truv's API schema.
@@ -197,10 +197,12 @@ Changes made:
         )
 
 
-def save_json_output(data: dict, filename: str) -> Path:
-    """Save processed JSON to the outputs directory. Returns the saved path."""
+def save_json_output(data: dict, filename: str, output_dir: Optional[Path] = None) -> Path:
+    """Save processed JSON to the specified directory. Returns the saved path."""
+    target_dir = output_dir or DEFAULT_OUTPUT_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(filename).stem
-    out_path = OUTPUT_DIR / f"{stem}_fixed.json"
+    out_path = target_dir / f"{stem}_fixed.json"
     with open(out_path, "w") as f:
         json.dump(data, f, indent=2)
     logger.info("Saved fixed JSON to %s", out_path)
@@ -223,6 +225,7 @@ def process_truv_json(
     filename: str,
     customer_email: str,
     session_id: Optional[str] = None,
+    output_dir: Optional[Path] = None,
 ) -> dict:
     """
     Full Truv JSON processing pipeline.
@@ -273,7 +276,7 @@ def process_truv_json(
     diff_report = generate_diff_report(anon_json, fixed_json)
 
     # Step 5: Save output
-    output_path = save_json_output(fixed_json, filename)
+    output_path = save_json_output(fixed_json, filename, output_dir=output_dir)
 
     # Step 6: Draft customer email response and save to file
     draft_email = draft_json_response_email(

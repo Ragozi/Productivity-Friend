@@ -3,7 +3,8 @@ Email Agent — Fetches, prioritizes, and drafts responses for Outlook emails.
 
 Capabilities:
 - Fetch unread messages from Outlook inbox via Microsoft Graph API
-- Classify priority (HIGH / MEDIUM / LOW) using Claude
+- Classify priority (HIGH / MEDIUM / LOW / SPAM / PHISHING) using Claude
+- Auto-delete SPAM and PHISHING emails when --auto-clean is enabled
 - Draft reply emails for high-priority messages
 - Flag or archive lower-priority messages
 - Detect JSON attachments (for the JSON Agent to process)
@@ -15,7 +16,7 @@ import base64
 from typing import Optional
 from anthropic import Anthropic
 
-from utils.graph_auth import graph_get, graph_post, graph_patch
+from utils.graph_auth import graph_get, graph_post, graph_patch, graph_delete
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +27,36 @@ URGENCY_KEYWORDS = [
     "api", "401", "403", "500", "/v1/", "failing", "launch",
 ]
 
+# Fast-path phishing indicators (common patterns)
+PHISHING_KEYWORDS = [
+    "verify your account", "confirm your identity", "account has been suspended",
+    "unusual sign-in activity", "click here to verify", "password expired",
+    "update your payment information", "your account will be closed",
+    "confirm your email address to avoid", "invoice attached", "wire transfer",
+    "gift card", "nigerian prince", "lottery winner",
+]
+
+# Fast-path spam indicators
+SPAM_KEYWORDS = [
+    "unsubscribe", "you've been selected", "free gift", "limited time offer",
+    "act now", "congratulations you have been selected", "click here to claim",
+    "earn money from home", "work from home", "weight loss", "diet pill",
+    "enlarge", "casino", "jackpot", "you won", "no cost", "risk free",
+]
+
 PRIORITY_SYSTEM_PROMPT = """You are an assistant helping a Technical Account Manager (TAM) at Truv.com
 prioritize their email inbox. Truv provides income/employment verification APIs to enterprise clients.
 
-Classify each email as HIGH, MEDIUM, or LOW priority based on:
+Classify each email as HIGH, MEDIUM, LOW, SPAM, or PHISHING based on:
 - HIGH: Production issues, urgent integration requests, customer escalations, API failures,
   anything mentioning deployment/outage/critical/down/error, C-level senders, launch deadlines
 - MEDIUM: Integration questions, feature requests, follow-ups, meeting requests, vendor questions
 - LOW: FYI updates, newsletters, automated reports, internal announcements
+- SPAM: Unsolicited bulk email, marketing, promotions with no business value
+- PHISHING: Attempts to steal credentials, fake security alerts, suspicious links asking to
+  click/verify/confirm, impersonation of known services, unexpected invoice/payment requests
 
-Return ONLY a JSON object with keys: priority (HIGH/MEDIUM/LOW), reason (1 sentence), action (what to do)."""
+Return ONLY a JSON object with keys: priority (HIGH/MEDIUM/LOW/SPAM/PHISHING), reason (1 sentence), action (what to do)."""
 
 
 def fetch_unread_emails(
@@ -59,7 +80,6 @@ def fetch_unread_emails(
                     "id,subject,from,receivedDateTime,"
                     "bodyPreview,hasAttachments,importance,body"
                 ),
-                "$orderby": "receivedDateTime desc",
             },
         )
         messages = data.get("value", [])
@@ -113,8 +133,25 @@ def classify_email_priority(
     Use Claude to classify email priority.
     Returns {"priority": str, "reason": str, "action": str}
     """
-    # Fast pre-check: keyword-based HIGH detection (avoids an LLM call)
     combined_text = f"{subject} {body_preview}".lower()
+
+    # Fast pre-check: phishing detection
+    if any(kw in combined_text for kw in PHISHING_KEYWORDS):
+        return {
+            "priority": "PHISHING",
+            "reason": "Contains phishing indicators (credential harvest, fake security alert, or suspicious link).",
+            "action": "Delete immediately — do not click any links.",
+        }
+
+    # Fast pre-check: spam detection
+    if any(kw in combined_text for kw in SPAM_KEYWORDS):
+        return {
+            "priority": "SPAM",
+            "reason": "Matches spam patterns (unsolicited bulk email or marketing).",
+            "action": "Delete — no action required.",
+        }
+
+    # Fast pre-check: keyword-based HIGH detection (avoids an LLM call)
     if any(kw in combined_text for kw in URGENCY_KEYWORDS):
         return {
             "priority": "HIGH",
@@ -237,14 +274,27 @@ def mark_as_read(message_id: str, user_id: str = "me") -> bool:
         return False
 
 
+def delete_message(message_id: str, user_id: str = "me") -> bool:
+    """Permanently delete a message."""
+    try:
+        graph_delete(f"/users/{user_id}/messages/{message_id}")
+        logger.info("Deleted message %s", message_id)
+        return True
+    except Exception as exc:
+        logger.warning("Could not delete message %s: %s", message_id, exc)
+        return False
+
+
 def run_email_agent(
     client: Anthropic,
     top: int = 20,
     auto_draft: bool = False,
+    auto_clean: bool = False,
 ) -> list[dict]:
     """
     Main email agent entrypoint. Fetches unread emails, classifies priority,
-    optionally drafts replies for HIGH priority items.
+    optionally drafts replies for HIGH priority items, and optionally deletes
+    SPAM/PHISHING when auto_clean=True.
 
     Returns a list of processed email summaries.
     """
@@ -274,7 +324,17 @@ def run_email_agent(
             "action": classification.get("action", ""),
             "has_json_attachment": False,
             "draft_id": None,
+            "deleted": False,
         }
+
+        # Auto-delete SPAM and PHISHING
+        if auto_clean and priority in ("SPAM", "PHISHING"):
+            deleted = delete_message(msg_id)
+            result["deleted"] = deleted
+            if deleted:
+                logger.info("[%s] DELETED: %s | %s", priority, subject, sender)
+                results.append(result)
+                continue
 
         # Check for JSON attachments (for the JSON agent)
         if has_attachments:
