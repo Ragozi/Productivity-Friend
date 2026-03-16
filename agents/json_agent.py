@@ -24,6 +24,7 @@ from anthropic import Anthropic
 
 from utils.pii_handler import anonymize_json, deanonymize_json, summarize_pii_findings
 from utils.truv_schemas import validate_truv_json, get_schema_for_endpoint
+from utils.truv_docs import get_endpoint_docs
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,13 @@ def fix_json_with_claude(
     schema = get_schema_for_endpoint(endpoint)
     error_text = "\n".join(f"  - {e}" for e in validation_errors)
 
+    # Fetch live Truv API docs for this endpoint (cached locally for 1 week)
+    live_docs = get_endpoint_docs(endpoint)
+    docs_section = (
+        f"\nOFFICIAL TRUV API DOCUMENTATION FOR THIS ENDPOINT:\n{live_docs}\n"
+        if live_docs else ""
+    )
+
     prompt = f"""Fix this Truv API JSON payload to resolve these validation errors:
 
 VALIDATION ERRORS:
@@ -99,9 +107,9 @@ VALIDATION ERRORS:
 CURRENT JSON (PII has been replaced with [REDACTED_*] placeholders):
 {json.dumps(anon_json, indent=2)}
 
-EXPECTED SCHEMA:
+HARDCODED VALIDATION SCHEMA:
 {json.dumps(schema, indent=2)}
-
+{docs_section}
 Return ONLY the corrected JSON object."""
 
     try:
@@ -115,7 +123,14 @@ Return ONLY the corrected JSON object."""
         text = next(
             (b.text for b in response.content if b.type == "text"), ""
         )
-        text = text.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        # Strip any markdown code fences Claude may wrap around the JSON
+        import re as _re
+        text = _re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=_re.MULTILINE)
+        text = _re.sub(r"\s*```$", "", text.strip(), flags=_re.MULTILINE)
+        # Extract just the JSON object if there's surrounding text
+        match = _re.search(r"\{[\s\S]*\}", text)
+        if match:
+            text = match.group(0)
         fixed = json.loads(text)
         logger.info("Claude successfully fixed the JSON.")
         return fixed
@@ -192,6 +207,16 @@ def save_json_output(data: dict, filename: str) -> Path:
     return out_path
 
 
+def save_draft_email(draft: str, filename: str) -> Path:
+    """Save the draft email text to data/outputs/ for review before sending."""
+    stem = Path(filename).stem
+    out_path = OUTPUT_DIR / f"{stem}_draft_reply.txt"
+    with open(out_path, "w") as f:
+        f.write(draft)
+    logger.info("Draft email saved to %s", out_path)
+    return out_path
+
+
 def process_truv_json(
     client: Anthropic,
     raw_json: dict,
@@ -250,11 +275,12 @@ def process_truv_json(
     # Step 5: Save output
     output_path = save_json_output(fixed_json, filename)
 
-    # Step 6: Draft customer email response
+    # Step 6: Draft customer email response and save to file
     draft_email = draft_json_response_email(
         client, customer_email, filename, pii_summary,
         validation_errors, diff_report, was_fixed,
     )
+    draft_path = save_draft_email(draft_email, filename)
 
     return {
         "session_id": session_id,
@@ -266,5 +292,6 @@ def process_truv_json(
         "diff_report": diff_report,
         "draft_email": draft_email,
         "output_path": str(output_path),
+        "draft_path": str(draft_path),
         "anon_json": fixed_json,
     }

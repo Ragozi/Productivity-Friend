@@ -8,6 +8,9 @@
 data/pii_maps/
 data/outputs/
 
+# ── Truv docs cache (auto-fetched, not source-controlled) ──
+data/truv_docs/
+
 # ── Python ────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]

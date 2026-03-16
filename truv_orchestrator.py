@@ -226,7 +226,11 @@ def print_json_results(result: dict) -> None:
 
     out_path = result.get("output_path")
     if out_path:
-        print(f"\n  📁 Fixed JSON saved to: {out_path}")
+        print(f"\n  📁 Fixed JSON saved to:  {out_path}")
+
+    draft_path = result.get("draft_path")
+    if draft_path:
+        print(f"  ✉  Draft email saved to: {draft_path}")
 
     draft = result.get("draft_email", "")
     if draft:
@@ -346,6 +350,11 @@ def main() -> None:
         help="Print what would be done without making Graph API calls",
     )
     parser.add_argument(
+        "--refresh-docs",
+        action="store_true",
+        help="Re-fetch and cache Truv API docs from docs.truv.com (run this periodically)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="Productivity-Friend v0.1.0",
@@ -361,6 +370,15 @@ def main() -> None:
     if args.dry_run:
         print("DRY RUN MODE — no Graph API calls will be made.")
         print("Arguments parsed:", vars(args))
+        sys.exit(0)
+
+    if args.refresh_docs:
+        from utils.truv_docs import refresh_all_docs
+        section("REFRESHING TRUV API DOCS CACHE")
+        print("  Fetching from docs.truv.com...\n")
+        results = refresh_all_docs()
+        ok = sum(1 for v in results.values() if v)
+        print(f"\n  Done: {ok}/{len(results)} endpoints cached in data/truv_docs/")
         sys.exit(0)
 
     # Initialize Claude client

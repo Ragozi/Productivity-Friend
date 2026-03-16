@@ -135,8 +135,14 @@ def _anonymize_recursive(data: Any, counters: dict, mapping: dict, key: str = ""
     elif isinstance(data, list):
         return [_anonymize_recursive(item, counters, mapping, key) for item in data]
     elif isinstance(data, str):
-        # If the key name is sensitive, redact the whole value
-        if key.lower() in SENSITIVE_KEYS:
+        # If the key name is sensitive (exact or suffix match), redact the whole value
+        # e.g. "customer_name" matches "name", "user_address" matches "address"
+        key_lower = key.lower()
+        is_sensitive = key_lower in SENSITIVE_KEYS or any(
+            key_lower == sk or key_lower.endswith("_" + sk)
+            for sk in SENSITIVE_KEYS
+        )
+        if is_sensitive:
             original = data
             placeholder_type = "SENSITIVE_FIELD"
             if original in mapping.get("forward", {}):

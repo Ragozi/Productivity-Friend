@@ -1,0 +1,17 @@
+{
+  "api_key": "truv_live_abc123xyz789_real_key",
+  "endpoint": "v1/verify",
+  "customer_name": "John Smith",
+  "customer_email": "john.smith@acmecorp.com",
+  "customer_phone": "555-867-5309",
+  "customer_ssn": "123-45-6789",
+  "payload": {
+    "account_id": "acc_987654321",
+    "bridge_token": "bridge_tok_xyz",
+    "product_type": "income",
+    "user_address": "123 Main Street, Austin TX 78701",
+    "date_of_birth": "1985-03-22",
+    "routing_number": "021000021",
+    "account_number": "account_number 00112233445566"
+  }
+}
