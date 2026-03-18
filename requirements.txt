@@ -14,3 +14,8 @@ deepdiff>=7.0.0            # JSON diff generation
 
 # ── Environment / Config ──────────────────────────────────────
 python-dotenv>=1.0.0       # Load .env files
+
+# ── HTTP API Server (for TruvBrain integration) ───────────────
+fastapi>=0.115.0           # REST API framework
+uvicorn>=0.32.0            # ASGI server (run with: uvicorn api_server:app --reload)
+python-multipart>=0.0.12   # Required by FastAPI for form/file uploads

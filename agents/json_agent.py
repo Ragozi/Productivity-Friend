@@ -212,7 +212,7 @@ def save_json_output(data: dict, filename: str, output_dir: Optional[Path] = Non
 def save_draft_email(draft: str, filename: str) -> Path:
     """Save the draft email text to data/outputs/ for review before sending."""
     stem = Path(filename).stem
-    out_path = OUTPUT_DIR / f"{stem}_draft_reply.txt"
+    out_path = DEFAULT_OUTPUT_DIR / f"{stem}_draft_reply.txt"
     with open(out_path, "w") as f:
         f.write(draft)
     logger.info("Draft email saved to %s", out_path)
