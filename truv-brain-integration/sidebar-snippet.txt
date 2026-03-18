@@ -1,0 +1,64 @@
+=====================================================================
+TruvBrain — InternalSidebar.tsx  Changes
+File: TruvBrain/components/internal/InternalSidebar.tsx
+=====================================================================
+
+Find the nav items array / JSX block where other menu links live
+(look for "dashboard", "customers", "knowledge-base" etc.) and add:
+
+─────────────────────────────────────────────────────────────────
+{ href: "/productivity", label: "Productivity", icon: "⚡" }
+─────────────────────────────────────────────────────────────────
+
+Or if InternalSidebar renders <Link> elements directly, add:
+
+  <Link
+    href="/productivity"
+    className={cn(
+      "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium",
+      pathname === "/productivity"
+        ? "bg-amber-100 text-amber-900"
+        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+    )}
+  >
+    <span>⚡</span>
+    Productivity
+  </Link>
+
+(Adjust className values to match the existing nav item style.)
+
+─────────────────────────────────────────────────────────────────
+TruvBrain — layout.tsx changes (if needed)
+─────────────────────────────────────────────────────────────────
+
+The productivity page fills the full viewport, so if (internal)/layout.tsx
+applies a max-width container or padding to children, wrap the productivity
+page's content div with className="overflow-hidden p-0" or adjust as needed.
+
+─────────────────────────────────────────────────────────────────
+TruvBrain — .env.local addition
+─────────────────────────────────────────────────────────────────
+
+Add to TruvBrain/.env.local (or .env):
+
+  NEXT_PUBLIC_PRODUCTIVITY_FRIEND_URL=http://localhost:8000
+
+For production (if api_server is deployed):
+  NEXT_PUBLIC_PRODUCTIVITY_FRIEND_URL=https://your-api-server-url.com
+
+=====================================================================
+File copy checklist
+=====================================================================
+
+From Productivity-Friend/ → TruvBrain/
+
+  productivity-friend-dashboard.jsx
+  → components/productivity/productivity-friend-dashboard.jsx
+
+  truv-brain-integration/ProductivityFriendDashboard.tsx
+  → components/productivity/ProductivityFriendDashboard.tsx
+
+  truv-brain-integration/productivity-page.tsx
+  → app/(internal)/productivity/page.tsx
+
+That's all — no other TruvBrain files need to change (except sidebar + .env).
