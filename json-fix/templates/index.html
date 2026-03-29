@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JSON_FIX — Truv API JSON Processor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⚙️</span>
+        <div>
+          <span class="logo-title">JSON_FIX</span>
+          <span class="logo-sub">Truv API JSON Processor</span>
+        </div>
+      </div>
+      <button class="settings-toggle" onclick="toggleSettings()">⚙ Settings</button>
+    </div>
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settingsPanel">
+      <div class="settings-inner">
+        <h3>Truv API Configuration <span class="badge badge-info">Phase 2</span></h3>
+        <p class="settings-note">Enter your Truv sandbox credentials here once you receive them. These will be embedded into generated API payloads.</p>
+        <div class="settings-row">
+          <label>Environment</label>
+          <select id="cfg-env">
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <label>Client ID</label>
+          <input type="text" id="cfg-client-id" placeholder="dd21ca23c12142b6a0970b1e0afeXXXX" />
+        </div>
+        <div class="settings-row">
+          <label>Access Secret</label>
+          <input type="password" id="cfg-access-secret" placeholder="sandbox-a57b3109f1f4..." />
+        </div>
+        <button class="btn-secondary" onclick="saveSettings()">Save (coming in Phase 2)</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="workspace" id="workspace">
+
+      <!-- LEFT: Drop zone + file list -->
+      <div class="left-panel" id="leftPanel">
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="dropZone">
+          <div class="drop-icon">📂</div>
+          <div class="drop-text">Drop JSON files here</div>
+          <div class="drop-sub">or <span class="drop-link" onclick="document.getElementById('fileInput').click()">browse to select</span></div>
+          <div class="drop-hint">Accepts multiple files — processes all at once</div>
+          <input type="file" id="fileInput" accept=".json,application/json" multiple hidden />
+        </div>
+
+        <!-- Bulk Actions -->
+        <div class="bulk-bar" id="bulkBar" style="display:none;">
+          <span class="bulk-label" id="bulkLabel">0 files loaded</span>
+          <button class="btn-primary" onclick="bulkFix()">⬇ Fix All &amp; Download ZIP</button>
+        </div>
+
+        <!-- File List -->
+        <div class="file-list" id="fileList"></div>
+      </div>
+
+      <!-- RIGHT: Analysis panel -->
+      <div class="right-panel" id="rightPanel" style="display:none;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-filename" id="panelFilename">—</div>
+            <div class="panel-doctype" id="panelDoctype"></div>
+          </div>
+          <div class="panel-status-badge" id="panelStatusBadge"></div>
+        </div>
+
+        <!-- Doc type override -->
+        <div class="section">
+          <div class="section-title">Document Type</div>
+          <div class="doctype-row">
+            <span id="doctypeReason" class="doctype-reason"></span>
+            <select id="doctypeSelect" onchange="onDoctypeChange()">
+              <option value="user_create">User Creation (POST /users/)</option>
+              <option value="bridge_token">Bridge Token (POST /tokens/)</option>
+              <option value="employment_report">Employment / Income Report</option>
+              <option value="unknown">Unknown — Employment Report</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Field Mapping -->
+        <div class="section">
+          <div class="section-title">Field Mapping</div>
+          <table class="mapping-table" id="mappingTable">
+            <thead>
+              <tr>
+                <th>Customer Field</th>
+                <th>→ Truv Field</th>
+                <th>Confidence</th>
+                <th>Current Value</th>
+              </tr>
+            </thead>
+            <tbody id="mappingBody"></tbody>
+          </table>
+          <div id="unmappedSection"></div>
+        </div>
+
+        <!-- Issues -->
+        <div class="section" id="issuesSection">
+          <div class="section-title">Issues &amp; Required Inputs</div>
+          <div id="issuesBody"></div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-bar">
+          <button class="btn-primary" id="generateBtn" onclick="generateOutput()">⚡ Generate Fixed JSON</button>
+          <div class="download-links" id="downloadLinks" style="display:none;"></div>
+        </div>
+
+        <!-- Preview -->
+        <div class="section" id="previewSection" style="display:none;">
+          <div class="section-title">Output Preview</div>
+          <pre class="code-preview" id="codePreview"></pre>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
