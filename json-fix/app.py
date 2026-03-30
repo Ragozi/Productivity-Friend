@@ -121,7 +121,7 @@ def upload():
             continue
         content = f.read()
         analysis = process_file(content, f.filename)
-        _sessions[analysis["file_id"]] = _scrub_pii_from_session(analysis)
+        _sessions[analysis["file_id"]] = analysis  # full data kept for generate_output()
 
         # Serialize mapping for JSON response
         results.append(_serialize_analysis(analysis))
@@ -255,19 +255,22 @@ def get_session(file_id):
 # ---------------------------------------------------------------------------
 
 def _serialize_analysis(analysis: dict) -> dict:
-    """Make analysis dict JSON-serializable (drop non-serializable original_data ref)."""
+    """Make analysis dict JSON-serializable. Scrubs PII values from browser response
+    (session storage keeps real values so generate_output() can use them)."""
     mapping_out = {}
     for canonical, info in analysis.get("mapping", {}).items():
+        raw_val = info.get("value")
+        is_pii = canonical in _PII_FIELDS or (info.get("original_key", "").lower() in _PII_FIELDS)
         mapping_out[canonical] = {
             "original_key": info.get("original_key"),
-            "value": _safe_val(info.get("value")),
+            "value": "[REDACTED]" if is_pii else _safe_val(raw_val),
             "confidence": info.get("confidence"),
             "method": info.get("method"),
         }
 
     cleaned_out = {}
     for k, v in analysis.get("cleaned", {}).items():
-        cleaned_out[k] = _safe_val(v)
+        cleaned_out[k] = "[REDACTED]" if k in _PII_FIELDS else _safe_val(v)
 
     return {
         "file_id": analysis.get("file_id"),
