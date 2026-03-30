@@ -8,6 +8,10 @@
 data/pii_maps/
 data/outputs/
 
+# ── JSON_FIX output & logs (generated files, not source) ──
+json-fix/output/
+json-fix/logs/
+
 # ── Truv docs cache (auto-fetched, not source-controlled) ──
 data/truv_docs/
 

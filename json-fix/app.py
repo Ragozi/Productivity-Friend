@@ -5,25 +5,95 @@ Truv API JSON processor with drag-and-drop UI.
 
 import io
 import json
+import logging
 import os
 import uuid
 import zipfile
 from datetime import datetime
 
+import requests
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory
+from flask_cors import CORS
 
 from processors.cleaner import generate_output, process_file
-from config import OUTPUT_DIR, LOG_DIR, MAX_UPLOAD_MB
+from config import OUTPUT_DIR, LOG_DIR, MAX_UPLOAD_MB, PRODUCTIVITY_FRIEND_URL
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 app.secret_key = os.urandom(24)
+
+# Allow Productivity-Friend (port 8000) to call json-fix cross-origin
+CORS(app, resources={r"/*": {"origins": [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://192.168.50.194:8000",
+]}})
 
 # In-memory session store: file_id → analysis dict
 _sessions: dict = {}
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
+
+# PII field names that must never be stored in session memory
+_PII_FIELDS = {"ssn", "email", "first_name", "last_name", "phone", "date_of_birth",
+               "social_security", "fname", "lname", "given_name", "surname"}
+
+
+def _scrub_pii_from_session(analysis: dict) -> dict:
+    """
+    Remove raw PII values from an analysis dict before caching in _sessions.
+    Replaces PII field values with a sentinel so the session is safe in memory.
+    The UI can still show field names and mapping confidence; values are hidden.
+    """
+    scrubbed = dict(analysis)
+    pii_count = 0
+
+    mapping = dict(scrubbed.get("mapping", {}))
+    for canonical, info in mapping.items():
+        if canonical in _PII_FIELDS or (info.get("original_key", "").lower() in _PII_FIELDS):
+            mapping[canonical] = dict(info)
+            mapping[canonical]["value"] = "[REDACTED]"
+            pii_count += 1
+    scrubbed["mapping"] = mapping
+
+    cleaned = dict(scrubbed.get("cleaned", {}))
+    for key in list(cleaned.keys()):
+        if key in _PII_FIELDS:
+            cleaned[key] = "[REDACTED]"
+            pii_count += 1
+    scrubbed["cleaned"] = cleaned
+
+    # Drop the raw parsed data entirely — it contains the full original payload
+    scrubbed.pop("original_data", None)
+
+    scrubbed["pii_fields_redacted"] = pii_count
+    return scrubbed
+
+
+def _call_productivity_friend(output_payload: dict) -> dict | None:
+    """
+    Optionally call Productivity-Friend's /api/validate-json for deep schema validation.
+    Returns the validation result dict or None if the server is unreachable.
+    The payload sent is the already-mapped Truv-format JSON (no raw PII).
+    """
+    if not PRODUCTIVITY_FRIEND_URL:
+        return None
+    # Extract the actual payload (strip _truv_api metadata wrapper)
+    data_to_validate = output_payload.get("payload", output_payload)
+    try:
+        resp = requests.post(
+            f"{PRODUCTIVITY_FRIEND_URL}/api/validate-json",
+            json=data_to_validate,
+            timeout=2,
+        )
+        if resp.ok:
+            return resp.json()
+    except Exception as exc:
+        logger.debug("Productivity-Friend unreachable: %s", exc)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +121,7 @@ def upload():
             continue
         content = f.read()
         analysis = process_file(content, f.filename)
-        _sessions[analysis["file_id"]] = analysis
+        _sessions[analysis["file_id"]] = _scrub_pii_from_session(analysis)
 
         # Serialize mapping for JSON response
         results.append(_serialize_analysis(analysis))
@@ -96,14 +166,20 @@ def fix():
     _sessions[file_id]["output_filename"] = output_filename
     _sessions[file_id]["audit_filename"] = audit_filename
 
-    return jsonify({
+    # Optional: deep schema validation via Productivity-Friend
+    schema_validation = _call_productivity_friend(json.loads(output_json))
+
+    response = {
         "success": True,
         "output_url": f"/download/{output_filename}",
         "audit_url": f"/download/{audit_filename}",
         "output_filename": output_filename,
         "audit_filename": audit_filename,
         "preview": json.loads(output_json),
-    })
+    }
+    if schema_validation is not None:
+        response["schema_validation"] = schema_validation
+    return jsonify(response)
 
 
 @app.route("/bulk_fix", methods=["POST"])

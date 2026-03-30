@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Validate Truv JSON (Beelink)",
+      "type": "shell",
+      "command": "curl -s -X POST http://192.168.50.194:8000/api/validate-json -H 'Content-Type: application/json' -d @${file} | python3 -m json.tool",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Process & Fix Truv JSON (Beelink)",
+      "type": "shell",
+      "command": "curl -s -X POST http://192.168.50.194:8000/api/process-json -H 'Content-Type: application/json' -d \"{\\\"json_data\\\": $(cat ${file}), \\\"filename\\\": \\\"${fileBasename}\\\"}\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print('\\nErrors:', d.get('validation_errors',[])); open('${fileDirname}/${fileBasenameNoExtension}.fixed.json','w').write(json.dumps(d.get('anon_json',{}), indent=2)); print('Saved: ${fileBasenameNoExtension}.fixed.json')\"",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Open JSON_FIX UI (Beelink)",
+      "type": "shell",
+      "command": "start http://192.168.50.194:5000",
+      "windows": {
+        "command": "start http://192.168.50.194:5000"
+      },
+      "osx": {
+        "command": "open http://192.168.50.194:5000"
+      },
+      "linux": {
+        "command": "xdg-open http://192.168.50.194:5000"
+      },
+      "group": "none",
+      "presentation": {
+        "reveal": "never"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

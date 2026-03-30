@@ -80,10 +80,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow Next.js dev (localhost:3000) and your Vercel deployment
+# Allow Next.js dev (localhost:3000), json-fix (localhost:5000), and your Vercel deployment
 _allowed_origins = [
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
     "https://*.vercel.app",
 ]
 extra_origin = os.getenv("TRUV_BRAIN_ORIGIN", "")
