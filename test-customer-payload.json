@@ -1,0 +1,17 @@
+{
+  "firstName": "Jane",
+  "lastName": "Smith",
+  "emailAddress": "jane.smith@acmecorp.com",
+  "phone_number": "555-867-5309",
+  "social_security": "123-45-6789",
+  "dateOfBirth": "03/15/1985",
+  "employerName": "Acme Corporation",
+  "jobTitle": "Senior Engineer",
+  "employmentType": "full-time",
+  "annualSalary": 95000,
+  "hireDate": "January 10, 2019",
+  "isCurrentlyEmployed": "yes",
+  "api_key": "sk-truv-abc123secret",
+  "access_secret": "mysecretkey",
+  "tracking_info": "loan-app-2024-001"
+}
